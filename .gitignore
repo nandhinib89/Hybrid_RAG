@@ -9,6 +9,9 @@ venv/
 __pycache__/
 *.pyc
 
+# Evaluation cache
+.deepeval/
+
 # macOS
 .DS_Store
 

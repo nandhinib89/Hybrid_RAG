@@ -177,9 +177,9 @@ def add_document_to_vector_store(
 if __name__ == "__main__":
 
     FILE_PATH = (
-        "data/uploads/"
-        "spotify_web_app_architecture.pdf"
-    )
+    "data/uploads/"
+    "customer_support_platform_architecture.pdf"
+  )
 
     result = add_document_to_vector_store(
         FILE_PATH

@@ -1,67 +1,100 @@
 # Hybrid RAG Assistant
 
-A Hybrid Retrieval-Augmented Generation (RAG) application that combines **vector search using FAISS** and **knowledge graph retrieval using Neo4j** to answer questions about uploaded documents.
+An end-to-end **Hybrid Retrieval-Augmented Generation (RAG)**
+application that combines semantic vector retrieval, lexical reranking,
+cross-encoder semantic reranking, and knowledge-graph retrieval to
+generate grounded answers from uploaded documents.
 
-The application uses **FastAPI** for the backend, **Streamlit** for the frontend, and **OpenAI GPT-4o-mini** for grounded answer generation.
+The application uses **FastAPI** for the backend, **Streamlit** for the
+frontend, **FAISS** for vector search, **Neo4j** for knowledge-graph
+retrieval, **OpenAI GPT-4o-mini** for grounded generation, **DeepEval**
+for evaluation, and **LangSmith** for observability.
 
----
+## Live Application
 
-## Features
+**https://hybridrag.sbs**
 
-- Upload PDF, TXT, Markdown, and DOCX documents
-- Extract and chunk document content
-- Store document chunks in a FAISS vector database
-- Extract entities and relationships into a Neo4j knowledge graph
-- Perform hybrid retrieval using vector similarity search and knowledge graph retrieval
-- Generate grounded answers using GPT-4o-mini
-- Display retrieved document sources
-- Basic grounding guardrail to reduce unsupported answers
-- Lightweight evaluation of RAG responses
-- Dockerized backend and frontend
-- FastAPI Swagger documentation
+The application is containerized with Docker and deployed to a VPS
+behind Nginx with HTTPS.
 
----
+------------------------------------------------------------------------
+
+## Key Features
+
+-   Upload PDF, TXT, Markdown, and DOCX documents
+-   Preserve filename, page number, and chunk ID metadata
+-   Chunk documents with `chunk_size=500` and `chunk_overlap=75`
+-   Generate embeddings with OpenAI `text-embedding-3-small`
+-   FAISS semantic retrieval (Top 10 candidates)
+-   BM25 lexical reranking (Top 5)
+-   Cross-Encoder semantic reranking (Top 3)
+-   Neo4j entity and relationship storage
+-   Question-aware knowledge-graph retrieval
+-   Hybrid vector + graph context
+-   GPT-4o-mini grounded answer generation
+-   Retrieval and prompt-level grounding guardrails
+-   Retrieved source display in Streamlit
+-   Deterministic functional evaluation
+-   DeepEval Answer Relevancy and Contextual Relevancy evaluation
+-   LangSmith tracing and observability
+-   FastAPI Swagger documentation
+-   Docker Compose deployment
+-   VPS hosting with Nginx and HTTPS
+
+------------------------------------------------------------------------
 
 ## Architecture
 
-```text
-                    User
-                      |
-                      v
-              Streamlit Frontend
-                    :3000
-                      |
-                      v
-                FastAPI Backend
-                    :8000
-                      |
-             +--------+--------+
-             |                 |
-             v                 v
-       Vector Retrieval   Graph Retrieval
-             |                 |
-             v                 v
-           FAISS             Neo4j
-             |                 |
-             +--------+--------+
-                      |
-                      v
-              Context Fusion
-                      |
-                      v
-                GPT-4o-mini
-                      |
-                      v
-              Grounded Answer
+``` text
+                         User
+                           |
+                           v
+                  Streamlit Frontend
+                           |
+                           v
+                    FastAPI Backend
+                           |
+                     User Question
+                           |
+             +-------------+-------------+
+             |                           |
+             v                           v
+      Vector Retrieval            Knowledge Graph
+             |                       Retrieval
+             v                           |
+      FAISS Semantic Search              v
+          Top 10                  Neo4j Relationships
+             |                           |
+             v                           v
+       BM25 Reranking              Question-aware
+           Top 5                     Filtering
+             |                           |
+             v                           |
+    Cross-Encoder Reranking              |
+           Top 3                         |
+             +-------------+-------------+
+                           |
+                           v
+                    Grounded Context
+                           |
+                           v
+                       Guardrails
+                           |
+                           v
+                     GPT-4o-mini
+                           |
+                           v
+                Answer + Source Metadata
+
+          Observability: LangSmith
+          Evaluation: Functional Tests + DeepEval
 ```
 
----
+------------------------------------------------------------------------
 
 ## Document Ingestion
 
-When a document is uploaded, it follows this pipeline:
-
-```text
+``` text
 Upload
   |
   v
@@ -73,101 +106,115 @@ Extract Text
   v
 Chunk Document
   |
-  +--------------------+
-  |                    |
-  v                    v
-FAISS Vector DB     Neo4j Knowledge Graph
+  +--------------------------+
+  |                          |
+  v                          v
+OpenAI Embeddings       Entity / Relationship
+  |                       Extraction
+  v                          |
+FAISS Vector DB              v
+                         Neo4j Graph
 ```
 
-Supported document types:
+Supported types: **PDF, TXT, Markdown, DOCX**.
 
-- PDF
-- TXT
-- Markdown
-- DOCX
+PDF files are processed page by page so page information is retained as
+source metadata.
 
-PDF documents are processed page by page so that page information can be retained as source metadata.
+Current chunking configuration:
 
----
-
-## Query Pipeline
-
-When a user asks a question:
-
-```text
-Question
-   |
-   +--------------------+
-   |                    |
-   v                    v
-FAISS Search       Neo4j Retrieval
-   |                    |
-   +---------+----------+
-             |
-             v
-       Retrieved Context
-             |
-             v
-        GPT-4o-mini
-             |
-             v
-      Grounded Answer
+``` text
+chunk_size = 500
+chunk_overlap = 75
 ```
 
-The LLM is instructed to use only the retrieved context and avoid inventing information that is not supported by the uploaded documents.
+------------------------------------------------------------------------
 
-If the supplied context does not contain enough information, the system is instructed to respond:
+## Hybrid Retrieval Pipeline
 
-> "I don't have enough information in the uploaded document to answer that question."
+### 1. FAISS Semantic Retrieval
 
----
+The question is embedded with OpenAI embeddings and FAISS retrieves the
+top 10 semantic candidates.
+
+### 2. BM25 Lexical Reranking
+
+BM25 reranks those candidates using lexical/keyword relevance and keeps
+the top 5.
+
+### 3. Cross-Encoder Semantic Reranking
+
+The model `cross-encoder/ms-marco-MiniLM-L-6-v2` evaluates each
+question/chunk pair jointly and returns the final top 3 vector results.
+
+This helps correct cases where keyword overlap ranks a less-direct chunk
+above one that more precisely answers the question.
+
+### 4. Neo4j Knowledge-Graph Retrieval
+
+Entities and relationships extracted during ingestion are stored in
+Neo4j. At query time, graph relationships are filtered and ranked for
+question relevance instead of sending a fixed set of unrelated graph
+relationships to the LLM.
+
+### 5. Context Fusion and Generation
+
+The final vector results and relevant graph relationships are supplied
+to GPT-4o-mini. The generation prompt instructs the model to answer only
+from supplied evidence.
+
+------------------------------------------------------------------------
+
+## Grounding and Guardrails
+
+The generation layer is instructed to:
+
+-   Use only supplied vector and graph context
+-   Avoid unsupported assumptions and invented information
+-   Prefer explicit graph relationships when they establish a fact
+-   Not treat entity names alone as proof of a relationship
+-   Return an insufficient-information response when evidence is
+    inadequate
+
+Fallback response:
+
+> I don't have enough information in the uploaded document to answer
+> that question.
+
+Guardrail logic is implemented in `backend/guardrails.py`.
+
+------------------------------------------------------------------------
 
 ## Technology Stack
 
-### Frontend
+**Frontend:** Streamlit, Requests
 
-- Streamlit
+**Backend:** Python 3.11, FastAPI, Uvicorn, Pydantic
 
-### Backend
+**RAG:** LangChain, OpenAI Embeddings, FAISS, BM25, Sentence
+Transformers, Cross-Encoder reranking, Neo4j, GPT-4o-mini
 
-- FastAPI
-- Uvicorn
-- Python 3.11
+**Document Processing:** PyMuPDF, python-docx, LangChain text splitters
 
-### RAG
+**Evaluation & Observability:** Custom functional evaluation, DeepEval,
+LangSmith
 
-- FAISS
-- Neo4j
-- LangChain
-- OpenAI embeddings
-- GPT-4o-mini
+**Deployment:** Docker, Docker Compose, GitHub, VPS, Nginx, Let's
+Encrypt / Certbot
 
-### Document Processing
-
-- PyMuPDF
-- python-docx
-- LangChain text splitters
-
-### Deployment
-
-- Docker
-- Docker Compose
-- GitHub
-- VPS
-- Nginx
-- Let's Encrypt / Certbot
-
----
+------------------------------------------------------------------------
 
 ## Project Structure
 
-```text
+``` text
 Hybrid_RAG/
-│
+|
 ├── backend/
 │   ├── __init__.py
 │   ├── api.py
+│   ├── deepeval_eval.py
 │   ├── evaluate.py
+│   ├── guardrails.py
 │   ├── ingestion.py
 │   ├── knowledge_graph.py
 │   ├── llm.py
@@ -176,424 +223,369 @@ Hybrid_RAG/
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .dockerignore
-│
+|
 ├── frontend/
 │   ├── app.py
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .dockerignore
-│
+|
 ├── data/
 │   ├── uploads/
 │   └── vector_db/
-│
+|
 ├── .env.example
 ├── .gitignore
 ├── docker-compose.yml
 └── README.md
 ```
 
-Create `backend/.env` locally using `.env.example`. It contains secrets and is intentionally excluded from GitHub.
+The repository also contains component test scripts used during
+development to validate vector retrieval, graph retrieval, Neo4j
+connectivity, and chunk structure.
 
----
+------------------------------------------------------------------------
 
-# Setup
+## Environment Configuration
 
-## 1. Clone the repository
+Create `backend/.env` from `.env.example`:
 
-```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
-cd Hybrid_RAG
-```
-
-## 2. Configure environment variables
-
-Create:
-
-```text
-backend/.env
-```
-
-with:
-
-```text
+``` text
 OPENAI_API_KEY=your_openai_api_key
 
 NEO4J_URI=your_neo4j_uri
 NEO4J_USERNAME=your_neo4j_username
 NEO4J_PASSWORD=your_neo4j_password
+
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your_langsmith_api_key
+LANGSMITH_PROJECT=Hybrid-RAG
 ```
 
-Never commit the real `.env` file to GitHub.
+Never commit the real `backend/.env`.
 
-An `.env.example` file is provided as a template.
+------------------------------------------------------------------------
 
----
+## Setup
 
-# Running Locally Without Docker
+### 1. Clone
 
-## Start FastAPI
+``` bash
+git clone https://github.com/nandhinib89/Hybrid_RAG.git
+cd Hybrid_RAG
+```
 
-From the project root:
+### 2. Create and activate a Python 3.11 virtual environment
 
-```bash
+``` bash
+python3.11 -m venv venv
+source venv/bin/activate
+```
+
+### 3. Install dependencies
+
+``` bash
+pip install -r backend/requirements.txt
+pip install -r frontend/requirements.txt
+```
+
+### 4. Configure `backend/.env`
+
+Add the OpenAI, Neo4j, and LangSmith values shown above.
+
+------------------------------------------------------------------------
+
+## Running Locally
+
+Start FastAPI from the project root:
+
+``` bash
 uvicorn backend.api:app --reload
 ```
 
-FastAPI:
-
-```text
-http://127.0.0.1:8000
-```
-
-Swagger:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-## Start Streamlit
+-   Backend: `http://127.0.0.1:8000`
+-   Swagger: `http://127.0.0.1:8000/docs`
 
 In another terminal:
 
-```bash
+``` bash
 streamlit run frontend/app.py
 ```
 
-Streamlit:
+-   Streamlit: `http://localhost:8501`
 
-```text
-http://localhost:8501
-```
+------------------------------------------------------------------------
 
----
+## Running with Docker
 
-# Running with Docker
-
-From the project root:
-
-```bash
+``` bash
 docker compose up --build
 ```
 
-The application consists of two containers:
+Containers:
 
-```text
+``` text
 hybrid-rag-backend
 hybrid-rag-frontend
 ```
 
-### Frontend
+Local endpoints:
 
-```text
-http://localhost:3000
-```
+-   Frontend: `http://localhost:3000`
+-   Backend: `http://localhost:8000`
+-   Swagger: `http://localhost:8000/docs`
 
-### Backend
+Background mode:
 
-```text
-http://localhost:8000
-```
-
-### FastAPI documentation
-
-```text
-http://localhost:8000/docs
-```
-
-## Run Docker in the background
-
-```bash
+``` bash
 docker compose up --build -d
 ```
 
-Check containers:
+Useful commands:
 
-```bash
+``` bash
 docker compose ps
-```
-
-View logs:
-
-```bash
 docker compose logs -f
-```
-
-View backend logs:
-
-```bash
-docker compose logs backend
-```
-
-Stop:
-
-```bash
 docker compose down
 ```
 
----
+Uploaded documents and the FAISS vector database are mounted as Docker
+volumes so they persist outside the backend container.
 
-# API Endpoints
+------------------------------------------------------------------------
 
-## Health Check
+## API Endpoints
 
-```text
-GET /
-```
+### `GET /`
 
-Returns:
-
-```json
+``` json
 {
   "message": "Hybrid RAG API is running"
 }
 ```
 
-## Health
+### `GET /health`
 
-```text
-GET /health
-```
-
-Returns:
-
-```json
+``` json
 {
   "status": "healthy"
 }
 ```
 
-## Upload Document
+### `POST /upload`
 
-```text
-POST /upload
-```
+Accepts PDF, TXT, Markdown, and DOCX files. The document is processed
+and its chunks are added to both FAISS and the Neo4j knowledge graph.
 
-Accepts PDF, TXT, Markdown, and DOCX.
-
-The document is processed and added to both the vector database and knowledge graph.
-
-## Ask a Question
-
-```text
-POST /ask
-```
+### `POST /ask`
 
 Example:
 
-```json
+``` json
 {
   "question": "Where are ticket attachments stored?"
 }
 ```
 
-The response contains the generated answer, retrieval counts, and retrieved document source information.
+The response includes the generated answer, retrieval counts, and source
+metadata.
 
----
+------------------------------------------------------------------------
 
-# Evaluation
+## Evaluation
 
-A lightweight evaluation script is included in:
+The project uses two complementary evaluation approaches.
 
-```text
-backend/evaluate.py
+### Functional Evaluation
+
+Run FastAPI first, then:
+
+``` bash
+python -m backend.evaluate
 ```
 
-The evaluation uses five factual questions based on the customer-support architecture document.
+Current five-question factual test set:
+
+``` text
+Passed: 5/5
+Accuracy: 100.0%
+```
 
 Example questions include:
 
-- Where are ticket attachments stored?
-- What database stores ticket records?
-- Which service consumes ticket events from RabbitMQ?
-- What is used for full-text search?
-- How are customer passwords stored?
+-   Where are ticket attachments stored?
+-   What database stores ticket records?
+-   Which service consumes ticket events from RabbitMQ?
+-   What is used for full-text search?
+-   How are customer passwords stored?
+
+This is a small manually designed factual test set and is not intended
+as a comprehensive RAG benchmark.
+
+### DeepEval
 
 Run:
 
-```bash
-python backend/evaluate.py
+``` bash
+python -m backend.deepeval_eval
 ```
 
-## Evaluation Result
+DeepEval evaluates:
 
-Current evaluation:
+-   Answer Relevancy
+-   Contextual Relevancy
 
-```text
-Test cases: 5
-Passed: 4
-Failed: 1
-Pass rate: 80%
-```
+Testing produced consistently strong answer relevance. It also exposed
+an important limitation: a retrieved chunk can contain the correct
+evidence together with unrelated surrounding sentences, lowering
+Contextual Relevancy.
 
-The failed test demonstrated the application's grounding behavior: when the required information was not available in the retrieved context, the system returned the configured insufficient-information response rather than generating an unsupported answer.
+A controlled experiment evaluating only the top cross-encoder-ranked
+chunk improved Contextual Relevancy, supporting the conclusion that
+retrieval locates the correct evidence while chunk-level context can
+still contain unnecessary material.
 
-This is a small manually designed factual test set and should not be interpreted as a comprehensive RAG benchmark.
+The production configuration remains **Top 3** after cross-encoder
+reranking rather than being changed solely to optimize an evaluation
+metric.
 
----
+------------------------------------------------------------------------
 
-# Grounding Guardrail
+## LangSmith Observability
 
-The LLM prompt instructs the model to:
+LangSmith tracing is enabled for important retrieval stages:
 
-- Use only the supplied document and graph context
-- Avoid unsupported assumptions
-- Avoid inventing information
-- Prefer explicit knowledge graph relationships
-- Distinguish established information from unsupported information
-- Refuse to answer when the supplied context is insufficient
+-   FAISS Vector Search
+-   BM25 Reranking
+-   Cross-Encoder Reranking
+-   Neo4j Graph Search
+-   Hybrid RAG Retrieval
+-   LangChain/OpenAI generation calls
 
-This provides a lightweight application-level grounding guardrail without requiring an additional guardrail framework.
+This provides visibility into retrieval behavior, execution flow, LLM
+calls, latency, and intermediate pipeline activity.
 
----
+------------------------------------------------------------------------
 
-# Data Storage
+## Data Storage
 
-### FAISS
+-   Uploaded documents: `data/uploads/`
+-   FAISS index: `data/vector_db/`
+-   Knowledge graph: Neo4j / Neo4j Aura
 
-Vector embeddings for document chunks are stored locally in:
+Generated uploads and local FAISS database contents are excluded from
+Git tracking.
 
-```text
-data/vector_db/
-```
+------------------------------------------------------------------------
 
-### Neo4j
+## Deployment
 
-Extracted entities and relationships are stored in Neo4j.
-
-The application is configured to use Neo4j Aura through the environment variables in `backend/.env`.
-
----
-
-# Docker Architecture
-
-```text
-                  Browser
-                     |
-                     v
-              localhost:3000
-                     |
-                     v
-        +-------------------------+
-        | Streamlit Frontend      |
-        | hybrid-rag-frontend     |
-        | Port 8501               |
-        +------------+------------+
-                     |
-                     | Docker network
-                     |
-                     v
-        +-------------------------+
-        | FastAPI Backend         |
-        | hybrid-rag-backend      |
-        | Port 8000               |
-        +------------+------------+
-                     |
-              +------+------+
-              |             |
-              v             v
-           FAISS        Neo4j Aura
-```
-
-The FAISS database and uploaded documents are mounted as local Docker volumes so that they remain available outside the container.
-
----
-
-# Deployment
-
-The project is designed to follow this deployment workflow:
-
-```text
-Local Application
-       |
-       v
-Docker
-       |
-       v
+``` text
 GitHub
-       |
-       v
+   |
+   v
 VPS
-       |
-       v
+   |
+   v
 Docker Compose
-       |
-       v
-Nginx
-       |
-       v
-Domain
-       |
-       v
-HTTPS / SSL
+   |
+   +--------------------+
+   |                    |
+   v                    v
+FastAPI              Streamlit
+Backend              Frontend
+   |                    |
+   +----------+---------+
+              |
+              v
+            Nginx
+              |
+              v
+          HTTPS / SSL
+              |
+              v
+       https://hybridrag.sbs
 ```
 
-The deployment workflow uses Docker for containerization, GitHub for source-code storage, a VPS for hosting, Nginx as a reverse proxy, and Let's Encrypt / Certbot for HTTPS.
+Docker provides separate frontend and backend containers. Nginx acts as
+the reverse proxy, with HTTPS configured using Let's Encrypt / Certbot.
 
-The local Docker deployment should be verified before deploying to the VPS.
+The deployed application is available at **https://hybridrag.sbs**.
 
----
+------------------------------------------------------------------------
 
-# Security
+## Security
 
-The following file must not be committed to GitHub:
+Secrets are stored locally in `backend/.env`.
 
-```text
-backend/.env
-```
+The `.gitignore` excludes environment files, virtual environments,
+Python caches, DeepEval cache, macOS metadata, IDE configuration, logs,
+uploaded documents, and generated FAISS database files.
 
-The `.gitignore` file excludes environment files and other local development artifacts.
+`.env.example` documents required configuration without exposing
+credentials.
 
-Use:
+------------------------------------------------------------------------
 
-```text
-.env.example
-```
+## Current Limitations
 
-to document the required environment variables without exposing credentials.
+-   Retrieved chunks can contain the correct evidence plus unrelated
+    surrounding sentences, reducing Contextual Relevancy.
+-   Knowledge-graph question matching uses lightweight relevance
+    filtering rather than advanced graph reasoning.
+-   The current evaluation dataset is small and manually designed.
+-   Uploaded documents are stored locally on the deployment host.
+-   End-user authentication and authorization are not currently
+    implemented.
 
----
+------------------------------------------------------------------------
 
-# Future Improvements
+## Future Improvements
 
-Potential improvements include:
+-   Contextual compression after cross-encoder reranking
+-   More granular or structure-aware chunking
+-   Larger and more diverse evaluation datasets
+-   Additional RAG evaluation metrics
+-   More advanced Neo4j traversal and graph reasoning
+-   Better provenance and citation presentation
+-   Support for CSV and XLSX
+-   Authentication and authorization
+-   Production-grade structured monitoring and logging
 
-- More sophisticated evaluation using RAG evaluation frameworks
-- Improved graph query relevance
-- Reranking of retrieved vector results
-- Stronger document-level grounding
-- Better document provenance tracking
-- Support for CSV and XLSX files
-- Improved retrieval evaluation
-- Production monitoring and logging
-- Authentication and authorization
+------------------------------------------------------------------------
 
----
+## Project Status
 
-# Project Status
+-   [x] Multi-format document ingestion
+-   [x] Metadata-preserving chunking
+-   [x] OpenAI embeddings
+-   [x] FAISS vector storage
+-   [x] BM25 reranking
+-   [x] Cross-Encoder semantic reranking
+-   [x] Neo4j knowledge graph
+-   [x] Question-aware graph retrieval
+-   [x] Hybrid vector + graph retrieval
+-   [x] GPT-4o-mini grounded generation
+-   [x] Retrieval and grounding guardrails
+-   [x] Source display
+-   [x] FastAPI backend
+-   [x] Streamlit frontend
+-   [x] Functional evaluation
+-   [x] DeepEval evaluation
+-   [x] LangSmith observability
+-   [x] Docker backend and frontend
+-   [x] Docker Compose
+-   [x] GitHub source control
+-   [x] VPS deployment
+-   [x] Nginx reverse proxy
+-   [x] HTTPS / SSL
+-   [x] Public deployment at `hybridrag.sbs`
 
-Current implementation includes:
+------------------------------------------------------------------------
 
-- [x] Multi-format document ingestion
-- [x] Document chunking
-- [x] FAISS vector storage
-- [x] Neo4j knowledge graph
-- [x] Hybrid retrieval
-- [x] GPT-4o-mini answer generation
-- [x] Grounding guardrail
-- [x] FastAPI backend
-- [x] Streamlit frontend
-- [x] Source display
-- [x] Evaluation script
-- [x] Docker backend
-- [x] Docker frontend
-- [x] Docker Compose
-- [x] Local Docker testing
+## Live Demo
 
-Next deployment steps:
+**https://hybridrag.sbs**
 
-- [ ] Push project to GitHub
-- [ ] Deploy to VPS
-- [ ] Configure domain
-- [ ] Configure Nginx
-- [ ] Enable HTTPS with Certbot
+Upload a supported document and ask questions against the ingested
+content using the Hybrid RAG pipeline described above.

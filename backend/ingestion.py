@@ -23,8 +23,8 @@ def get_text_splitter():
     """Create the text splitter used for document chunking."""
 
     return RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=150,
+        chunk_size=500,
+        chunk_overlap=75,
         separators=[
             "\n\n",
             "\n",
@@ -131,24 +131,10 @@ def extract_documents(file_path: str, document_id: str):
     )
 
 
-def create_chunks(
-    documents,
-    chunk_size=1000,
-    chunk_overlap=150
-):
+def create_chunks(documents):
     """Split extracted documents into chunks while preserving metadata."""
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=[
-            "\n\n",
-            "\n",
-            ". ",
-            " ",
-            ""
-        ]
-    )
+    splitter = get_text_splitter()
 
     chunks = []
 
@@ -164,7 +150,6 @@ def create_chunks(
         for chunk_text in split_texts:
 
             chunk_metadata = metadata.copy()
-
             chunk_metadata["chunk_id"] = chunk_id
 
             chunks.append({
@@ -209,7 +194,7 @@ def process_file(file_path: str):
 
 if __name__ == "__main__":
 
-    file_path = "data/uploads/spotify_web_app_architecture.pdf"
+    file_path = "data/uploads/customer_support_platform_architecture.pdf"
 
     try:
 

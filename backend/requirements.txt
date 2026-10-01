@@ -11,3 +11,8 @@ langchain-openai
 langchain-community
 neo4j
 langchain-experimental
+rank-bm25
+sentence-transformers==3.4.1
+deepeval==4.2.6
+# Observability
+langsmith==0.13.0

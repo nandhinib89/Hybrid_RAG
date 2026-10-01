@@ -2,7 +2,11 @@ import os
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-
+from langsmith import traceable
+from backend.guardrails import (
+    validate_retrieval,
+    FALLBACK_RESPONSE
+)
 load_dotenv()
 
 
@@ -11,12 +15,24 @@ llm = ChatOpenAI(
     temperature=0
 )
 
-
+@traceable(name="Generate Answer")
 def generate_answer(question, vector_results, graph_results):
     """
     Generate a grounded answer using both vector and
     knowledge graph context.
     """
+
+    # -----------------------------------------------------
+    # Retrieval guardrail
+    # -----------------------------------------------------
+
+    allowed, guardrail_message = validate_retrieval(
+        question,
+        vector_results
+    )
+
+    if not allowed:
+        return guardrail_message
 
     # -----------------------------------------------------
     # Format vector context
@@ -114,8 +130,7 @@ IMPORTANT GROUNDING RULES:
 7. If the supplied context does not contain enough information
    to answer the question, respond exactly:
 
-   "I don't have enough information in the uploaded document
-   to answer that question."
+   "{FALLBACK_RESPONSE}"
 
    Do not use your general knowledge to fill in missing information.
 

@@ -3,6 +3,7 @@ import shutil
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
+from langsmith import traceable
 
 from backend.ingestion import process_file
 from backend.vector_store import add_document_to_vector_store
@@ -241,6 +242,7 @@ async def upload_document(
 # --------------------------------
 
 @app.post("/ask")
+@traceable(name="Hybrid RAG Pipeline")
 def ask_question(
     request: QuestionRequest
 ):

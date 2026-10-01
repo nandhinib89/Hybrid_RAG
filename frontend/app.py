@@ -202,8 +202,7 @@ if st.session_state.document_uploaded:
         key="question",
         placeholder=(
             "Where are ticket attachments stored?"
-        ),
-        on_change=ask_question
+        )
     )
 
 
