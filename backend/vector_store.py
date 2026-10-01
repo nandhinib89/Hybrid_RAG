@@ -32,17 +32,15 @@ def add_document_to_vector_store(
     processed_result=None
 ):
     """
-    Process a document and add its chunks to the
-    FAISS vector database.
+    Process a document and create a fresh FAISS vector
+    database containing only the uploaded document.
 
     If processed_result is provided, it is reused so
     the document is processed only once.
 
-    If the vector database does not exist yet, a new
-    FAISS database is created.
-
-    If it already exists, the new document's chunks
-    are added to the existing database.
+    The application currently supports one active
+    document at a time, so each upload replaces the
+    previous vector index.
     """
 
     # --------------------------------------------------
@@ -90,64 +88,27 @@ def add_document_to_vector_store(
     )
 
     # --------------------------------------------------
-    # Check whether FAISS already exists
+    # Create fresh vector database
+    #
+    # The application supports one active document
+    # at a time. A new FAISS index is therefore
+    # created for every uploaded document.
     # --------------------------------------------------
 
-    index_file = os.path.join(
+    os.makedirs(
         VECTOR_DB_PATH,
-        "index.faiss"
+        exist_ok=True
     )
 
-    metadata_file = os.path.join(
-        VECTOR_DB_PATH,
-        "index.pkl"
+    vector_store = FAISS.from_documents(
+        documents,
+        embeddings
     )
 
-    vector_db_exists = (
-        os.path.exists(index_file)
-        and os.path.exists(metadata_file)
+    print(
+        "Created fresh vector database "
+        "for uploaded document."
     )
-
-    # --------------------------------------------------
-    # Add to existing vector database
-    # --------------------------------------------------
-
-    if vector_db_exists:
-
-        vector_store = FAISS.load_local(
-            VECTOR_DB_PATH,
-            embeddings,
-            allow_dangerous_deserialization=True
-        )
-
-        vector_store.add_documents(
-            documents
-        )
-
-        print(
-            "Added chunks to existing "
-            "vector database."
-        )
-
-    # --------------------------------------------------
-    # Create new vector database
-    # --------------------------------------------------
-
-    else:
-
-        os.makedirs(
-            VECTOR_DB_PATH,
-            exist_ok=True
-        )
-
-        vector_store = FAISS.from_documents(
-            documents,
-            embeddings
-        )
-
-        print(
-            "Created new vector database."
-        )
 
     # --------------------------------------------------
     # Save FAISS database
@@ -177,9 +138,9 @@ def add_document_to_vector_store(
 if __name__ == "__main__":
 
     FILE_PATH = (
-    "data/uploads/"
-    "customer_support_platform_architecture.pdf"
-  )
+        "data/uploads/"
+        "customer_support_platform_architecture.pdf"
+    )
 
     result = add_document_to_vector_store(
         FILE_PATH

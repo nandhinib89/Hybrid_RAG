@@ -57,6 +57,11 @@ def ask_question():
     if not question.strip():
         return
 
+    # Clear previous result before processing
+    # the new question
+    st.session_state.answer = None
+    st.session_state.sources = None
+
     try:
 
         response = requests.post(
@@ -197,12 +202,13 @@ if st.session_state.document_uploaded:
     st.header("2. Ask a question")
 
 
-    question = st.text_input(
+    st.text_input(
         "Enter your question",
         key="question",
         placeholder=(
             "Where are ticket attachments stored?"
-        )
+        ),
+        on_change=ask_question
     )
 
 

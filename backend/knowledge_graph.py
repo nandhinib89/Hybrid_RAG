@@ -111,12 +111,12 @@ graph_transformer = LLMGraphTransformer(
 
 def clear_graph():
     """
-    Delete the entire Neo4j graph.
+    Delete the existing Neo4j graph.
 
-    This function is intended only for development
-    or rebuilding the complete graph.
-
-    It is NOT called during normal document ingestion.
+    The application currently supports one active
+    document at a time, so this is called during
+    document ingestion before storing the newly
+    extracted graph.
     """
 
     with driver.session() as session:
@@ -142,8 +142,9 @@ def store_graph(graph_documents):
     Store extracted entities and relationships
     in Neo4j.
 
-    MERGE is used so existing entities and
-    relationships are not blindly duplicated.
+    MERGE is used so duplicate entities and
+    relationships within the current document
+    are not blindly created.
     """
 
     node_count = 0
@@ -245,10 +246,12 @@ def add_document_to_knowledge_graph(
 ):
     """
     Process one document, extract entities and
-    relationships, and add them to the existing
-    Neo4j knowledge graph.
+    relationships, and create a fresh Neo4j
+    knowledge graph for that document.
 
-    The existing graph is NOT cleared.
+    The application currently supports one active
+    document at a time, so each successful ingestion
+    replaces the previous graph.
 
     If processed_result is provided, it is reused
     so the document is processed only once.
@@ -357,7 +360,17 @@ def add_document_to_knowledge_graph(
     )
 
     # --------------------------------------------------
-    # Store graph
+    # Clear previous graph
+    #
+    # This happens only after the new graph has been
+    # extracted successfully. If extraction fails,
+    # the previous graph remains available.
+    # --------------------------------------------------
+
+    clear_graph()
+
+    # --------------------------------------------------
+    # Store new graph
     # --------------------------------------------------
 
     graph_stats = store_graph(
