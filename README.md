@@ -15,7 +15,7 @@ for evaluation, and **LangSmith** for observability.
 **https://hybridrag.sbs**
 
 The application is containerized with Docker and deployed to a VPS
-behind Nginx with HTTPS.
+using Docker Compose, with Traefik handling reverse proxy routing and HTTPS.
 
 ------------------------------------------------------------------------
 
@@ -39,7 +39,7 @@ behind Nginx with HTTPS.
 -   LangSmith tracing and observability
 -   FastAPI Swagger documentation
 -   Docker Compose deployment
--   VPS hosting with Nginx and HTTPS
+-   VPS hosting with Traefik reverse proxy and HTTPS
 
 ------------------------------------------------------------------------
 
@@ -199,8 +199,8 @@ Transformers, Cross-Encoder reranking, Neo4j, GPT-4o-mini
 **Evaluation & Observability:** Custom functional evaluation, DeepEval,
 LangSmith
 
-**Deployment:** Docker, Docker Compose, GitHub, VPS, Nginx, Let's
-Encrypt / Certbot
+**Deployment:** Docker, Docker Compose, GitHub, Hostinger VPS, Traefik,
+Let's Encrypt
 
 ------------------------------------------------------------------------
 
@@ -404,23 +404,57 @@ Run FastAPI first, then:
 python -m backend.evaluate
 ```
 
-Current five-question factual test set:
+The current evaluation suite contains **15 targeted test cases** designed
+to exercise multiple RAG behaviours rather than only straightforward
+factual lookup.
 
-``` text
-Passed: 5/5
-Accuracy: 100.0%
-```
+| Evaluation Category | Passed | Total |
+|---|---:|---:|
+| Factual Retrieval | 5 | 5 |
+| Paraphrased Retrieval | 3 | 3 |
+| Relationship Reasoning | 2 | 2 |
+| Unsupported Questions | 2 | 2 |
+| False-Premise / Hallucination Resistance | 2 | 2 |
+| Multi-part Context Synthesis | 1 | 1 |
+| **Overall** | **15** | **15** |
 
-Example questions include:
+**Result: 15/15 (100%) on the targeted evaluation suite.**
 
--   Where are ticket attachments stored?
--   What database stores ticket records?
--   Which service consumes ticket events from RabbitMQ?
--   What is used for full-text search?
--   How are customer passwords stored?
+The evaluation tests whether the system can:
 
-This is a small manually designed factual test set and is not intended
-as a comprehensive RAG benchmark.
+- Retrieve explicit facts from the active document
+- Answer semantically paraphrased questions
+- Reason over relationships represented in the retrieved context
+- Combine multiple pieces of information in a single answer
+- Decline questions that are unsupported by the uploaded document
+- Resist false premises instead of hallucinating unsupported answers
+
+Examples include factual questions such as:
+
+- Where are ticket attachments stored?
+- What database stores ticket records?
+
+The suite also includes more challenging cases such as:
+
+- Where does the system keep files attached to customer support tickets?
+- What happens to ticket events after the Ticket Management Service publishes them?
+- Where are ticket records and ticket attachments stored?
+- Why does MongoDB store the ticket records?
+- How does Kafka deliver ticket notifications?
+
+For unsupported and false-premise questions, the expected behaviour is
+to return the grounding fallback rather than generate an unsupported
+answer.
+
+In addition to the automated evaluation suite, document-isolation
+testing was performed by switching between uploaded documents and
+verifying that answers and source references did not contain information
+from the previously active document.
+
+> **Note:** The 100% result refers specifically to this targeted,
+> manually designed 15-question evaluation suite. It should not be
+> interpreted as a claim of 100% accuracy across arbitrary documents
+> or questions.
 
 ### DeepEval
 
@@ -480,35 +514,40 @@ Git tracking.
 
 ## Deployment
 
-``` text
+```text
 GitHub
    |
    v
-VPS
+Hostinger VPS
    |
    v
 Docker Compose
    |
-   +--------------------+
-   |                    |
-   v                    v
-FastAPI              Streamlit
-Backend              Frontend
-   |                    |
-   +----------+---------+
+   +---------------------+
+   |                     |
+   v                     v
+FastAPI                Streamlit
+Backend                Frontend
+   |                     |
+   +----------+----------+
               |
               v
-            Nginx
+           Traefik
+      Reverse Proxy
               |
               v
-          HTTPS / SSL
+     HTTPS / Let's Encrypt
               |
               v
-       https://hybridrag.sbs
+      https://hybridrag.sbs
 ```
 
-Docker provides separate frontend and backend containers. Nginx acts as
-the reverse proxy, with HTTPS configured using Let's Encrypt / Certbot.
+The application is deployed on a Hostinger VPS using Docker Compose.
+The FastAPI backend and Streamlit frontend run in separate Docker
+containers.
+
+Traefik handles reverse proxy routing for the public domain and manages
+HTTPS using a Let's Encrypt certificate resolver.
 
 The deployed application is available at **https://hybridrag.sbs**.
 
@@ -533,7 +572,9 @@ credentials.
     surrounding sentences, reducing Contextual Relevancy.
 -   Knowledge-graph question matching uses lightweight relevance
     filtering rather than advanced graph reasoning.
--   The current evaluation dataset is small and manually designed.
+-   The evaluation suite is targeted and manually designed; broader
+    datasets and additional document types would be needed for more
+    comprehensive RAG benchmarking.
 -   Uploaded documents are stored locally on the deployment host.
 -   End-user authentication and authorization are not currently
     implemented.
@@ -576,9 +617,9 @@ credentials.
 -   [x] Docker backend and frontend
 -   [x] Docker Compose
 -   [x] GitHub source control
--   [x] VPS deployment
--   [x] Nginx reverse proxy
--   [x] HTTPS / SSL
+-   [x] Hostinger VPS deployment
+-   [x] Traefik reverse proxy
+-   [x] HTTPS / Let's Encrypt
 -   [x] Public deployment at `hybridrag.sbs`
 
 ------------------------------------------------------------------------
